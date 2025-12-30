@@ -402,6 +402,71 @@ const PORT = parseInt(process.env.PORT || "8000");
 // Store active transports
 const transports: Map<string, SSEServerTransport> = new Map();
 
+// Root route - landing page
+app.get("/", (_req: Request, res: Response) => {
+    const tags = apiData.tags || [];
+    const endpointCount = getAllEndpoints().length;
+
+    res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Job Diva API MCP Server</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; background: #1a1a2e; color: #eee; }
+        h1 { color: #60a5fa; }
+        .status { background: #16213e; padding: 20px; border-radius: 8px; margin: 20px 0; }
+        .status h2 { margin-top: 0; color: #a78bfa; }
+        code { background: #0f3460; padding: 4px 8px; border-radius: 4px; }
+        ul { list-style: none; padding: 0; }
+        li { padding: 8px 0; border-bottom: 1px solid #333; }
+        .tag { background: #16213e; padding: 4px 12px; border-radius: 16px; font-size: 0.9em; }
+        a { color: #60a5fa; }
+    </style>
+</head>
+<body>
+    <h1>🚀 Job Diva API MCP Server</h1>
+    <p>This is a Model Context Protocol (MCP) server exposing Job Diva API documentation to AI assistants.</p>
+    
+    <div class="status">
+        <h2>✅ Server Status</h2>
+        <ul>
+            <li><strong>Status:</strong> Running</li>
+            <li><strong>Endpoints Loaded:</strong> ${endpointCount}</li>
+            <li><strong>Categories:</strong> ${tags.length}</li>
+        </ul>
+    </div>
+    
+    <div class="status">
+        <h2>📡 Available Routes</h2>
+        <ul>
+            <li><code>GET /</code> - This page</li>
+            <li><code>GET /health</code> - <a href="/health">Health check (JSON)</a></li>
+            <li><code>GET /mcp</code> - SSE endpoint for MCP clients</li>
+            <li><code>POST /mcp/message</code> - Message endpoint for MCP</li>
+        </ul>
+    </div>
+    
+    <div class="status">
+        <h2>🏷️ API Categories</h2>
+        <ul>
+            ${tags.map(t => `<li><span class="tag">${t.name}</span> - ${t.description}</li>`).join('')}
+        </ul>
+    </div>
+    
+    <div class="status">
+        <h2>🔧 MCP Tools Available</h2>
+        <ul>
+            <li><code>search_endpoints</code> - Search endpoints by keyword</li>
+            <li><code>get_endpoint_details</code> - Get full endpoint details</li>
+            <li><code>list_endpoints_by_tag</code> - List endpoints by category</li>
+        </ul>
+    </div>
+</body>
+</html>
+    `);
+});
+
 // Health check endpoint
 app.get("/health", (_req: Request, res: Response) => {
     res.json({ status: "ok", endpoints: Object.keys(apiData.paths).length });
