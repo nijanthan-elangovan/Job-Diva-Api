@@ -5,10 +5,10 @@
     "type": "module",
     "main": "build/index.js",
     "scripts": {
-        "build": "tsc && npm run copy-data",
-        "copy-data": "node -e \"require('fs').copyFileSync('../endpoints.json', './build/endpoints.json')\"",
+        "build": "npx tsc && npm run copy-data",
+        "copy-data": "node -e \"require('fs').copyFileSync('./endpoints.json', './build/endpoints.json')\"",
         "start": "node build/index.js",
-        "dev": "tsc && npm run copy-data && node build/index.js"
+        "dev": "npx tsc && npm run copy-data && node build/index.js"
     },
     "keywords": [
         "mcp",
