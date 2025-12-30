@@ -1,79 +1,31 @@
 #!/usr/bin/env node
-
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import {
-    CallToolRequestSchema,
-    ListResourcesRequestSchema,
-    ListToolsRequestSchema,
-    ReadResourceRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema, ReadResourceRequestSchema, } from "@modelcontextprotocol/sdk/types.js";
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
-import express, { Request, Response } from "express";
-
+import express from "express";
 // Get the directory of this file
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
 // Load the endpoints.json file
 // For deployment: endpoints.json should be in the same directory as the build output
 const endpointsPath = join(__dirname, "endpoints.json");
-let apiData: SwaggerSpec;
-
-interface SwaggerSpec {
-    swagger: string;
-    info: object;
-    host: string;
-    basePath: string;
-    tags: Array<{ name: string; description: string }>;
-    paths: Record<string, Record<string, EndpointDetails>>;
-    definitions?: Record<string, object>;
-}
-
-interface EndpointDetails {
-    tags?: string[];
-    summary?: string;
-    description?: string;
-    operationId?: string;
-    parameters?: Array<{
-        name: string;
-        in: string;
-        description?: string;
-        required?: boolean;
-        type?: string;
-        format?: string;
-        schema?: object;
-    }>;
-    responses?: Record<string, { description: string; schema?: object }>;
-    security?: Array<Record<string, string[]>>;
-    deprecated?: boolean;
-}
-
-interface ProcessedEndpoint {
-    path: string;
-    method: string;
-    tag: string;
-    summary: string;
-    description: string;
-    details: EndpointDetails;
-}
-
+let apiData;
 try {
     const rawData = readFileSync(endpointsPath, "utf-8");
     apiData = JSON.parse(rawData);
     console.log(`[MCP] Loaded ${Object.keys(apiData.paths).length} API paths from endpoints.json`);
-} catch (error) {
+}
+catch (error) {
     console.error(`[MCP] Error loading endpoints.json: ${error}`);
     process.exit(1);
 }
-
 // Process endpoints into a flat array for easier querying
-function getAllEndpoints(): ProcessedEndpoint[] {
-    const endpoints: ProcessedEndpoint[] = [];
+function getAllEndpoints() {
+    const endpoints = [];
     const paths = apiData.paths || {};
-
     for (const [path, methods] of Object.entries(paths)) {
         for (const [method, details] of Object.entries(methods)) {
             endpoints.push({
@@ -88,25 +40,19 @@ function getAllEndpoints(): ProcessedEndpoint[] {
     }
     return endpoints;
 }
-
 // Create the MCP server
-const server = new Server(
-    {
-        name: "jobdiva-api-docs",
-        version: "1.0.0",
+const server = new Server({
+    name: "jobdiva-api-docs",
+    version: "1.0.0",
+}, {
+    capabilities: {
+        resources: {},
+        tools: {},
     },
-    {
-        capabilities: {
-            resources: {},
-            tools: {},
-        },
-    }
-);
-
+});
 // List available resources
 server.setRequestHandler(ListResourcesRequestSchema, async () => {
     const tags = apiData.tags || [];
-
     const resources = [
         {
             uri: "jobdiva://api/tags",
@@ -121,7 +67,6 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
             mimeType: "application/json",
         },
     ];
-
     // Add a resource for each tag
     for (const tag of tags) {
         resources.push({
@@ -131,14 +76,11 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
             mimeType: "application/json",
         });
     }
-
     return { resources };
 });
-
 // Read resource content
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const uri = request.params.uri;
-
     if (uri === "jobdiva://api/tags") {
         const tags = apiData.tags || [];
         const tagSummary = tags.map((t) => ({
@@ -146,7 +88,6 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
             description: t.description,
             endpointCount: getAllEndpoints().filter((e) => e.tag === t.name).length,
         }));
-
         return {
             contents: [
                 {
@@ -157,7 +98,6 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
             ],
         };
     }
-
     if (uri === "jobdiva://api/endpoints") {
         const endpoints = getAllEndpoints();
         const summary = endpoints.map((e) => ({
@@ -166,7 +106,6 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
             tag: e.tag,
             summary: e.summary,
         }));
-
         return {
             contents: [
                 {
@@ -177,13 +116,11 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
             ],
         };
     }
-
     // Handle tag-specific endpoints
     const tagMatch = uri.match(/^jobdiva:\/\/api\/endpoints\/(.+)$/);
     if (tagMatch) {
         const tagName = decodeURIComponent(tagMatch[1]);
         const endpoints = getAllEndpoints().filter((e) => e.tag === tagName);
-
         const tagEndpoints = endpoints.map((e) => ({
             method: e.method,
             path: e.path,
@@ -197,7 +134,6 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
                 description: p.description,
             })),
         }));
-
         return {
             contents: [
                 {
@@ -208,18 +144,15 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
             ],
         };
     }
-
     throw new Error(`Unknown resource: ${uri}`);
 });
-
 // List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
         tools: [
             {
                 name: "search_endpoints",
-                description:
-                    "Search Job Diva API endpoints by keyword. Searches in path, summary, description, and parameter names.",
+                description: "Search Job Diva API endpoints by keyword. Searches in path, summary, description, and parameter names.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -237,8 +170,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: "get_endpoint_details",
-                description:
-                    "Get full details of a specific API endpoint including all parameters, responses, and schemas.",
+                description: "Get full details of a specific API endpoint including all parameters, responses, and schemas.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -272,21 +204,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         ],
     };
 });
-
 // Handle tool calls
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-
     if (name === "search_endpoints") {
-        const query = (args?.query as string || "").toLowerCase();
-        const tagFilter = args?.tag as string | undefined;
-
+        const query = (args?.query || "").toLowerCase();
+        const tagFilter = args?.tag;
         let endpoints = getAllEndpoints();
-
         if (tagFilter) {
             endpoints = endpoints.filter((e) => e.tag.toLowerCase() === tagFilter.toLowerCase());
         }
-
         const results = endpoints.filter((e) => {
             const searchIn = [
                 e.path,
@@ -299,7 +226,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 .toLowerCase();
             return searchIn.includes(query);
         });
-
         const output = results.slice(0, 20).map((e) => ({
             method: e.method,
             path: e.path,
@@ -307,7 +233,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             summary: e.summary,
             description: e.description,
         }));
-
         return {
             content: [
                 {
@@ -317,15 +242,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             ],
         };
     }
-
     if (name === "get_endpoint_details") {
-        const path = args?.path as string;
-        const method = (args?.method as string || "").toUpperCase();
-
-        const endpoint = getAllEndpoints().find(
-            (e) => e.path === path && e.method === method
-        );
-
+        const path = args?.path;
+        const method = (args?.method || "").toUpperCase();
+        const endpoint = getAllEndpoints().find((e) => e.path === path && e.method === method);
         if (!endpoint) {
             return {
                 content: [
@@ -336,7 +256,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 ],
             };
         }
-
         const details = {
             method: endpoint.method,
             path: endpoint.path,
@@ -347,7 +266,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             responses: endpoint.details.responses,
             deprecated: endpoint.details.deprecated,
         };
-
         return {
             content: [
                 {
@@ -357,13 +275,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             ],
         };
     }
-
     if (name === "list_endpoints_by_tag") {
-        const tag = args?.tag as string;
-        const endpoints = getAllEndpoints().filter(
-            (e) => e.tag.toLowerCase() === tag.toLowerCase()
-        );
-
+        const tag = args?.tag;
+        const endpoints = getAllEndpoints().filter((e) => e.tag.toLowerCase() === tag.toLowerCase());
         if (endpoints.length === 0) {
             const availableTags = apiData.tags?.map((t) => t.name).join(", ");
             return {
@@ -375,13 +289,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 ],
             };
         }
-
         const output = endpoints.map((e) => ({
             method: e.method,
             path: e.path,
             summary: e.summary,
         }));
-
         return {
             content: [
                 {
@@ -391,50 +303,41 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             ],
         };
     }
-
     throw new Error(`Unknown tool: ${name}`);
 });
-
 // Create Express app for SSE transport
 const app = express();
 const PORT = parseInt(process.env.PORT || "8000");
-
 // Store active transports
-const transports: Map<string, SSEServerTransport> = new Map();
-
+const transports = new Map();
 // Health check endpoint
-app.get("/health", (_req: Request, res: Response) => {
+app.get("/health", (_req, res) => {
     res.json({ status: "ok", endpoints: Object.keys(apiData.paths).length });
 });
-
 // SSE endpoint for MCP
-app.get("/mcp", async (req: Request, res: Response) => {
+app.get("/mcp", async (req, res) => {
     console.log("[MCP] New SSE connection");
-
     const transport = new SSEServerTransport("/mcp/message", res);
     const sessionId = Date.now().toString();
     transports.set(sessionId, transport);
-
     res.on("close", () => {
         console.log("[MCP] SSE connection closed");
         transports.delete(sessionId);
     });
-
     await server.connect(transport);
 });
-
 // Message endpoint for MCP
-app.post("/mcp/message", express.json(), async (req: Request, res: Response) => {
+app.post("/mcp/message", express.json(), async (req, res) => {
     // Find the transport and send the message
     const transportsArray = Array.from(transports.values());
     if (transportsArray.length > 0) {
         const transport = transportsArray[transportsArray.length - 1];
         await transport.handlePostMessage(req, res);
-    } else {
+    }
+    else {
         res.status(400).json({ error: "No active SSE connection" });
     }
 });
-
 // Start the server
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`[MCP] Job Diva API Documentation server running on http://0.0.0.0:${PORT}`);
