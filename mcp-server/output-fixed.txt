@@ -1,0 +1,15 @@
+﻿Starting debug script...
+Target: https://job-diva-api-nijanthan-elangovan.mcphosting.app
+
+1. Fetching https://job-diva-api-nijanthan-elangovan.mcphosting.app/health
+Health Status: 200
+Health Body: {"status":"ok","endpoints":386}
+
+2. Connecting to SSE...
+SSE Status: 200
+
+3. Found POST endpoint: /mcp/message?sessionId=d729e451-c2db-489a-8739-b6c98a82db89
+Attempting POST to: https://job-diva-api-nijanthan-elangovan.mcphosting.app/mcp/message?sessionId=d729e451-c2db-489a-8739-b6c98a82db89
+POST Status: 404
+POST Body: {"error":"Session not found or expired"}
+Test completed (Aborted SSE connection).
