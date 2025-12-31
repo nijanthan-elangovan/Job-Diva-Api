@@ -474,14 +474,16 @@ app.get("/health", (_req: Request, res: Response) => {
 
 // SSE endpoint for MCP
 app.get("/mcp", async (req: Request, res: Response) => {
-    console.log("[MCP] New SSE connection");
+    console.log("[MCP] New SSE connection initializing...");
 
-    const transport = new SSEServerTransport("/mcp/message", res);
-    const sessionId = Date.now().toString();
+    const sessionId = Date.now().toString() + "-" + Math.random().toString(36).substring(2, 9);
+    console.log(`[MCP] Created session: ${sessionId}`);
+
+    const transport = new SSEServerTransport(`/mcp/message?sessionId=${sessionId}`, res);
     transports.set(sessionId, transport);
 
     res.on("close", () => {
-        console.log("[MCP] SSE connection closed");
+        console.log(`[MCP] SSE connection closed for session: ${sessionId}`);
         transports.delete(sessionId);
     });
 
@@ -490,13 +492,22 @@ app.get("/mcp", async (req: Request, res: Response) => {
 
 // Message endpoint for MCP
 app.post("/mcp/message", express.json(), async (req: Request, res: Response) => {
-    // Find the transport and send the message
-    const transportsArray = Array.from(transports.values());
-    if (transportsArray.length > 0) {
-        const transport = transportsArray[transportsArray.length - 1];
+    const sessionId = req.query.sessionId as string;
+
+    if (!sessionId) {
+        console.error("[MCP] Error: No sessionId provided in query params");
+        res.status(400).json({ error: "Missing sessionId query parameter" });
+        return;
+    }
+
+    const transport = transports.get(sessionId);
+
+    if (transport) {
+        // console.log(`[MCP] Handling message for session: ${sessionId}`);
         await transport.handlePostMessage(req, res);
     } else {
-        res.status(400).json({ error: "No active SSE connection" });
+        console.error(`[MCP] Error: Session not found: ${sessionId}`);
+        res.status(404).json({ error: "Session not found or expired" });
     }
 });
 
