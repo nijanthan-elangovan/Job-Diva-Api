@@ -1,4 +1,5 @@
 {
+<<<<<<< HEAD
   "name": "jobdiva-api-mcp-server",
   "version": "1.0.0",
   "description": "MCP server for Job Diva API documentation - makes API endpoints easily accessible to Claude and other AI assistants",
@@ -30,3 +31,32 @@
     "typescript": "^5.7.2"
   }
 }
+=======
+    "name": "jobdiva-api-mcp-server",
+    "version": "1.0.0",
+    "description": "MCP server for Job Diva API documentation",
+    "type": "module",
+    "main": "build/index.js",
+    "scripts": {
+        "build": "node ./node_modules/typescript/bin/tsc && npm run copy-data",
+        "copy-data": "node -e \"require('fs').copyFileSync('./endpoints.json', './build/endpoints.json')\"",
+        "start": "node build/index.js",
+        "dev": "node ./node_modules/typescript/bin/tsc && npm run copy-data && node build/index.js"
+    },
+    "keywords": [
+        "mcp",
+        "jobdiva",
+        "api"
+    ],
+    "license": "MIT",
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.0.0",
+        "express": "^5.0.0",
+        "typescript": "^5.3.0"
+    },
+    "devDependencies": {
+        "@types/express": "^5.0.0",
+        "@types/node": "^20.10.0"
+    }
+}
+>>>>>>> 04e747064834d49d5f4a7cfd81d06ee23a34026a
