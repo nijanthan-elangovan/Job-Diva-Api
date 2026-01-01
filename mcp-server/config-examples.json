@@ -1,0 +1,54 @@
+{
+  "vscode-claude-code": {
+    "description": "Add this to VS Code settings.json for Claude Code",
+    "config": {
+      "mcp.servers": {
+        "jobdiva-api": {
+          "command": "node",
+          "args": [
+            "C:/Users/202211578/Job Diva Api/mcp-server/dist/index.js"
+          ]
+        }
+      }
+    }
+  },
+  "vscode-gemini": {
+    "description": "Add this to VS Code settings.json for Gemini Code Assist",
+    "config": {
+      "gemini.mcp.servers": {
+        "jobdiva-api": {
+          "command": "node",
+          "args": [
+            "C:/Users/202211578/Job Diva Api/mcp-server/dist/index.js"
+          ]
+        }
+      }
+    }
+  },
+  "claude-desktop": {
+    "description": "Full config for Claude Desktop (claude_desktop_config.json in %APPDATA%/Claude/)",
+    "config": {
+      "mcpServers": {
+        "jobdiva-api": {
+          "command": "node",
+          "args": [
+            "C:/Users/202211578/Job Diva Api/mcp-server/dist/index.js"
+          ]
+        }
+      }
+    }
+  },
+  "workspace-settings": {
+    "description": "Add this to .vscode/settings.json in your workspace for team sharing",
+    "config": {
+      "mcp.servers": {
+        "jobdiva-api": {
+          "command": "node",
+          "args": [
+            "${workspaceFolder}/mcp-server/dist/index.js"
+          ]
+        }
+      }
+    }
+  }
+}

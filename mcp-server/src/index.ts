@@ -1,519 +1,511 @@
 #!/usr/bin/env node
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
-    CallToolRequestSchema,
-    ListResourcesRequestSchema,
-    ListToolsRequestSchema,
-    ReadResourceRequestSchema,
+  CallToolRequestSchema,
+  ListResourcesRequestSchema,
+  ListToolsRequestSchema,
+  ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
-import express, { Request, Response } from "express";
 
-// Get the directory of this file
+// Get current file directory
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Load the endpoints.json file
-// For deployment: endpoints.json should be in the same directory as the build output
-const endpointsPath = join(__dirname, "endpoints.json");
-let apiData: SwaggerSpec;
-
+// TypeScript interfaces for Job Diva API structure
 interface SwaggerSpec {
-    swagger: string;
-    info: object;
-    host: string;
-    basePath: string;
-    tags: Array<{ name: string; description: string }>;
-    paths: Record<string, Record<string, EndpointDetails>>;
-    definitions?: Record<string, object>;
+  swagger: string;
+  info: Record<string, unknown>;
+  host: string;
+  basePath: string;
+  tags: Array<{ name: string; description: string }>;
+  paths: Record<string, Record<string, EndpointDetails>>;
+  definitions?: Record<string, unknown>;
 }
 
 interface EndpointDetails {
-    tags?: string[];
-    summary?: string;
-    description?: string;
-    operationId?: string;
-    parameters?: Array<{
-        name: string;
-        in: string;
-        description?: string;
-        required?: boolean;
-        type?: string;
-        format?: string;
-        schema?: object;
-    }>;
-    responses?: Record<string, { description: string; schema?: object }>;
-    security?: Array<Record<string, string[]>>;
-    deprecated?: boolean;
+  tags?: string[];
+  summary?: string;
+  description?: string;
+  operationId?: string;
+  parameters?: Parameter[];
+  responses?: Record<string, Response>;
+  security?: Array<Record<string, string[]>>;
+  deprecated?: boolean;
+  consumes?: string[];
+  produces?: string[];
+}
+
+interface Parameter {
+  name: string;
+  in: string;
+  description?: string;
+  required?: boolean;
+  type?: string;
+  format?: string;
+  schema?: Record<string, unknown>;
+  allowEmptyValue?: boolean;
+}
+
+interface Response {
+  description: string;
+  schema?: Record<string, unknown>;
 }
 
 interface ProcessedEndpoint {
-    path: string;
-    method: string;
-    tag: string;
-    summary: string;
-    description: string;
-    details: EndpointDetails;
+  path: string;
+  method: string;
+  tag: string;
+  summary: string;
+  description: string;
+  operationId: string;
+  details: EndpointDetails;
 }
 
+// Load the endpoints.json file
+const endpointsPath = join(__dirname, "endpoints.json");
+let apiData: SwaggerSpec;
+
 try {
-    const rawData = readFileSync(endpointsPath, "utf-8");
-    apiData = JSON.parse(rawData);
-    console.log(`[MCP] Loaded ${Object.keys(apiData.paths).length} API paths from endpoints.json`);
+  const rawData = readFileSync(endpointsPath, "utf-8");
+  apiData = JSON.parse(rawData);
+  console.error(`[JobDiva MCP] Loaded ${Object.keys(apiData.paths).length} API paths`);
+  console.error(`[JobDiva MCP] API Categories: ${apiData.tags?.map(t => t.name).join(", ")}`);
 } catch (error) {
-    console.error(`[MCP] Error loading endpoints.json: ${error}`);
-    process.exit(1);
+  console.error(`[JobDiva MCP] ERROR: Could not load endpoints.json from ${endpointsPath}`);
+  console.error(`[JobDiva MCP] ${error}`);
+  process.exit(1);
 }
 
 // Process endpoints into a flat array for easier querying
 function getAllEndpoints(): ProcessedEndpoint[] {
-    const endpoints: ProcessedEndpoint[] = [];
-    const paths = apiData.paths || {};
+  const endpoints: ProcessedEndpoint[] = [];
+  const paths = apiData.paths || {};
 
-    for (const [path, methods] of Object.entries(paths)) {
-        for (const [method, details] of Object.entries(methods)) {
-            endpoints.push({
-                path,
-                method: method.toUpperCase(),
-                tag: details.tags?.[0] || "Other",
-                summary: details.summary || "",
-                description: details.description || "",
-                details,
-            });
-        }
+  for (const [path, methods] of Object.entries(paths)) {
+    for (const [method, details] of Object.entries(methods)) {
+      endpoints.push({
+        path,
+        method: method.toUpperCase(),
+        tag: details.tags?.[0] || "Other",
+        summary: details.summary || "",
+        description: details.description || "",
+        operationId: details.operationId || "",
+        details,
+      });
     }
-    return endpoints;
+  }
+  return endpoints;
+}
+
+// Helper function to format endpoint for display
+function formatEndpointSummary(e: ProcessedEndpoint) {
+  return {
+    method: e.method,
+    path: e.path,
+    tag: e.tag,
+    summary: e.summary,
+    operationId: e.operationId,
+  };
+}
+
+// Helper function to format full endpoint details
+function formatEndpointDetails(e: ProcessedEndpoint) {
+  return {
+    method: e.method,
+    path: e.path,
+    tag: e.tag,
+    summary: e.summary,
+    description: e.description,
+    operationId: e.operationId,
+    parameters: e.details.parameters?.map(p => ({
+      name: p.name,
+      in: p.in,
+      type: p.type || (p.schema ? "object" : "string"),
+      required: p.required || false,
+      description: p.description || "",
+      format: p.format,
+    })),
+    responses: e.details.responses,
+    security: e.details.security,
+    deprecated: e.details.deprecated || false,
+    baseUrl: `https://${apiData.host}${apiData.basePath}`,
+  };
 }
 
 // Create the MCP server
 const server = new Server(
-    {
-        name: "jobdiva-api-docs",
-        version: "1.0.0",
+  {
+    name: "jobdiva-api-docs",
+    version: "1.0.0",
+  },
+  {
+    capabilities: {
+      resources: {},
+      tools: {},
     },
-    {
-        capabilities: {
-            resources: {},
-            tools: {},
-        },
-    }
+  }
 );
 
 // List available resources
 server.setRequestHandler(ListResourcesRequestSchema, async () => {
-    const tags = apiData.tags || [];
+  const tags = apiData.tags || [];
 
-    const resources = [
-        {
-            uri: "jobdiva://api/tags",
-            name: "API Tags/Categories",
-            description: "List all available API categories (tags)",
-            mimeType: "application/json",
-        },
-        {
-            uri: "jobdiva://api/endpoints",
-            name: "All Endpoints Summary",
-            description: "Summary of all API endpoints",
-            mimeType: "application/json",
-        },
-    ];
+  const resources = [
+    {
+      uri: "jobdiva://api/overview",
+      name: "Job Diva API Overview",
+      description: "Complete overview of the Job Diva API with all categories and endpoint counts",
+      mimeType: "text/plain",
+    },
+    {
+      uri: "jobdiva://api/tags",
+      name: "API Categories",
+      description: "List all available API categories with descriptions",
+      mimeType: "application/json",
+    },
+    {
+      uri: "jobdiva://api/endpoints",
+      name: "All Endpoints Summary",
+      description: "Quick summary of all API endpoints",
+      mimeType: "application/json",
+    },
+  ];
 
-    // Add a resource for each tag
-    for (const tag of tags) {
-        resources.push({
-            uri: `jobdiva://api/endpoints/${encodeURIComponent(tag.name)}`,
-            name: `${tag.name} Endpoints`,
-            description: tag.description || `Endpoints for ${tag.name}`,
-            mimeType: "application/json",
-        });
-    }
+  // Add a resource for each tag/category
+  for (const tag of tags) {
+    resources.push({
+      uri: `jobdiva://api/category/${encodeURIComponent(tag.name)}`,
+      name: `${tag.name} Endpoints`,
+      description: tag.description || `All endpoints in the ${tag.name} category`,
+      mimeType: "application/json",
+    });
+  }
 
-    return { resources };
+  return { resources };
 });
 
 // Read resource content
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-    const uri = request.params.uri;
+  const uri = request.params.uri;
 
-    if (uri === "jobdiva://api/tags") {
-        const tags = apiData.tags || [];
-        const tagSummary = tags.map((t) => ({
-            name: t.name,
-            description: t.description,
-            endpointCount: getAllEndpoints().filter((e) => e.tag === t.name).length,
-        }));
+  // API Overview
+  if (uri === "jobdiva://api/overview") {
+    const tags = apiData.tags || [];
+    const allEndpoints = getAllEndpoints();
 
-        return {
-            contents: [
-                {
-                    uri,
-                    mimeType: "application/json",
-                    text: JSON.stringify(tagSummary, null, 2),
-                },
-            ],
-        };
+    let overview = `# Job Diva API Documentation\n\n`;
+    overview += `Base URL: https://${apiData.host}${apiData.basePath}\n\n`;
+    overview += `## API Categories\n\n`;
+
+    for (const tag of tags) {
+      const count = allEndpoints.filter(e => e.tag === tag.name).length;
+      overview += `### ${tag.name} (${count} endpoints)\n`;
+      overview += `${tag.description}\n\n`;
     }
 
-    if (uri === "jobdiva://api/endpoints") {
-        const endpoints = getAllEndpoints();
-        const summary = endpoints.map((e) => ({
-            method: e.method,
-            path: e.path,
-            tag: e.tag,
-            summary: e.summary,
-        }));
+    overview += `\n## Total Endpoints: ${allEndpoints.length}\n`;
+    overview += `\nUse the MCP tools to search and explore specific endpoints.\n`;
 
-        return {
-            contents: [
-                {
-                    uri,
-                    mimeType: "application/json",
-                    text: JSON.stringify(summary, null, 2),
-                },
-            ],
-        };
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: "text/plain",
+          text: overview,
+        },
+      ],
+    };
+  }
+
+  // Tags list
+  if (uri === "jobdiva://api/tags") {
+    const tags = apiData.tags || [];
+    const endpoints = getAllEndpoints();
+
+    const tagSummary = tags.map((t) => ({
+      name: t.name,
+      description: t.description,
+      endpointCount: endpoints.filter((e) => e.tag === t.name).length,
+    }));
+
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: "application/json",
+          text: JSON.stringify(tagSummary, null, 2),
+        },
+      ],
+    };
+  }
+
+  // All endpoints summary
+  if (uri === "jobdiva://api/endpoints") {
+    const endpoints = getAllEndpoints();
+    const summary = endpoints.map(formatEndpointSummary);
+
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: "application/json",
+          text: JSON.stringify(summary, null, 2),
+        },
+      ],
+    };
+  }
+
+  // Category-specific endpoints
+  const categoryMatch = uri.match(/^jobdiva:\/\/api\/category\/(.+)$/);
+  if (categoryMatch) {
+    const tagName = decodeURIComponent(categoryMatch[1]);
+    const endpoints = getAllEndpoints().filter((e) => e.tag === tagName);
+
+    if (endpoints.length === 0) {
+      return {
+        contents: [
+          {
+            uri,
+            mimeType: "text/plain",
+            text: `No endpoints found for category: ${tagName}`,
+          },
+        ],
+      };
     }
 
-    // Handle tag-specific endpoints
-    const tagMatch = uri.match(/^jobdiva:\/\/api\/endpoints\/(.+)$/);
-    if (tagMatch) {
-        const tagName = decodeURIComponent(tagMatch[1]);
-        const endpoints = getAllEndpoints().filter((e) => e.tag === tagName);
+    const categoryEndpoints = endpoints.map(formatEndpointDetails);
 
-        const tagEndpoints = endpoints.map((e) => ({
-            method: e.method,
-            path: e.path,
-            summary: e.summary,
-            description: e.description,
-            parameters: e.details.parameters?.map((p) => ({
-                name: p.name,
-                in: p.in,
-                type: p.type,
-                required: p.required,
-                description: p.description,
-            })),
-        }));
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: "application/json",
+          text: JSON.stringify(categoryEndpoints, null, 2),
+        },
+      ],
+    };
+  }
 
-        return {
-            contents: [
-                {
-                    uri,
-                    mimeType: "application/json",
-                    text: JSON.stringify(tagEndpoints, null, 2),
-                },
-            ],
-        };
-    }
-
-    throw new Error(`Unknown resource: ${uri}`);
+  throw new Error(`Unknown resource: ${uri}`);
 });
 
 // List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return {
-        tools: [
-            {
-                name: "search_endpoints",
-                description:
-                    "Search Job Diva API endpoints by keyword. Searches in path, summary, description, and parameter names.",
-                inputSchema: {
-                    type: "object",
-                    properties: {
-                        query: {
-                            type: "string",
-                            description: "Search term to find in endpoints",
-                        },
-                        tag: {
-                            type: "string",
-                            description: "Optional: filter by API tag/category",
-                        },
-                    },
-                    required: ["query"],
-                },
+  return {
+    tools: [
+      {
+        name: "search_jobdiva_endpoints",
+        description: "Search Job Diva API endpoints by keyword. Searches across endpoint paths, summaries, descriptions, parameter names, and response codes. Perfect for finding relevant APIs quickly.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "Search keyword (e.g., 'candidate', 'authenticate', 'billing', 'job')",
             },
-            {
-                name: "get_endpoint_details",
-                description:
-                    "Get full details of a specific API endpoint including all parameters, responses, and schemas.",
-                inputSchema: {
-                    type: "object",
-                    properties: {
-                        path: {
-                            type: "string",
-                            description: "The API endpoint path (e.g., /apiv2/authenticate)",
-                        },
-                        method: {
-                            type: "string",
-                            description: "HTTP method (GET, POST, PUT, DELETE)",
-                            enum: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-                        },
-                    },
-                    required: ["path", "method"],
-                },
+            category: {
+              type: "string",
+              description: "Optional: filter by API category (e.g., 'CandidateV2', 'AuthenticationV2', 'JobV2')",
             },
-            {
-                name: "list_endpoints_by_tag",
-                description: "List all endpoints for a specific API category/tag.",
-                inputSchema: {
-                    type: "object",
-                    properties: {
-                        tag: {
-                            type: "string",
-                            description: "The API tag/category name (e.g., CandidateV2, JobV2, AuthenticationV2)",
-                        },
-                    },
-                    required: ["tag"],
-                },
+          },
+          required: ["query"],
+        },
+      },
+      {
+        name: "get_jobdiva_endpoint",
+        description: "Get complete details for a specific Job Diva API endpoint including all parameters, request/response schemas, authentication requirements, and example usage.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              description: "The API endpoint path (e.g., '/apiv2/authenticate', '/apiv2/candidate/detail')",
             },
-        ],
-    };
+            method: {
+              type: "string",
+              description: "HTTP method",
+              enum: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+            },
+          },
+          required: ["path", "method"],
+        },
+      },
+      {
+        name: "list_jobdiva_categories",
+        description: "List all available Job Diva API categories with descriptions and endpoint counts. Use this to understand the API structure and available functionality areas.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+        },
+      },
+      {
+        name: "get_jobdiva_category",
+        description: "Get all endpoints in a specific Job Diva API category with full details. Useful when you need to work with a specific area of the API.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            category: {
+              type: "string",
+              description: "Category name (e.g., 'CandidateV2', 'JobV2', 'AuthenticationV2', 'CompanyV2', 'ContactV2')",
+            },
+          },
+          required: ["category"],
+        },
+      },
+    ],
+  };
 });
 
 // Handle tool calls
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params;
+  const { name, arguments: args } = request.params;
 
-    if (name === "search_endpoints") {
-        const query = (args?.query as string || "").toLowerCase();
-        const tagFilter = args?.tag as string | undefined;
+  if (name === "search_jobdiva_endpoints") {
+    const query = (args?.query as string || "").toLowerCase();
+    const categoryFilter = args?.category as string | undefined;
 
-        let endpoints = getAllEndpoints();
+    let endpoints = getAllEndpoints();
 
-        if (tagFilter) {
-            endpoints = endpoints.filter((e) => e.tag.toLowerCase() === tagFilter.toLowerCase());
-        }
-
-        const results = endpoints.filter((e) => {
-            const searchIn = [
-                e.path,
-                e.summary,
-                e.description,
-                ...(e.details.parameters?.map((p) => p.name) || []),
-                ...(e.details.parameters?.map((p) => p.description || "") || []),
-            ]
-                .join(" ")
-                .toLowerCase();
-            return searchIn.includes(query);
-        });
-
-        const output = results.slice(0, 20).map((e) => ({
-            method: e.method,
-            path: e.path,
-            tag: e.tag,
-            summary: e.summary,
-            description: e.description,
-        }));
-
-        return {
-            content: [
-                {
-                    type: "text",
-                    text: `Found ${results.length} endpoints matching "${query}"${tagFilter ? ` in ${tagFilter}` : ""}:\n\n${JSON.stringify(output, null, 2)}`,
-                },
-            ],
-        };
+    if (categoryFilter) {
+      endpoints = endpoints.filter(
+        (e) => e.tag.toLowerCase() === categoryFilter.toLowerCase()
+      );
     }
 
-    if (name === "get_endpoint_details") {
-        const path = args?.path as string;
-        const method = (args?.method as string || "").toUpperCase();
-
-        const endpoint = getAllEndpoints().find(
-            (e) => e.path === path && e.method === method
-        );
-
-        if (!endpoint) {
-            return {
-                content: [
-                    {
-                        type: "text",
-                        text: `Endpoint not found: ${method} ${path}`,
-                    },
-                ],
-            };
-        }
-
-        const details = {
-            method: endpoint.method,
-            path: endpoint.path,
-            tag: endpoint.tag,
-            summary: endpoint.summary,
-            description: endpoint.description,
-            parameters: endpoint.details.parameters,
-            responses: endpoint.details.responses,
-            deprecated: endpoint.details.deprecated,
-        };
-
-        return {
-            content: [
-                {
-                    type: "text",
-                    text: JSON.stringify(details, null, 2),
-                },
-            ],
-        };
-    }
-
-    if (name === "list_endpoints_by_tag") {
-        const tag = args?.tag as string;
-        const endpoints = getAllEndpoints().filter(
-            (e) => e.tag.toLowerCase() === tag.toLowerCase()
-        );
-
-        if (endpoints.length === 0) {
-            const availableTags = apiData.tags?.map((t) => t.name).join(", ");
-            return {
-                content: [
-                    {
-                        type: "text",
-                        text: `No endpoints found for tag "${tag}". Available tags: ${availableTags}`,
-                    },
-                ],
-            };
-        }
-
-        const output = endpoints.map((e) => ({
-            method: e.method,
-            path: e.path,
-            summary: e.summary,
-        }));
-
-        return {
-            content: [
-                {
-                    type: "text",
-                    text: `${endpoints.length} endpoints in ${tag}:\n\n${JSON.stringify(output, null, 2)}`,
-                },
-            ],
-        };
-    }
-
-    throw new Error(`Unknown tool: ${name}`);
-});
-
-// Create Express app for SSE transport
-const app = express();
-const PORT = parseInt(process.env.PORT || "8000");
-
-// Store active transports
-const transports: Map<string, SSEServerTransport> = new Map();
-
-// Root route - landing page
-app.get("/", (_req: Request, res: Response) => {
-    const tags = apiData.tags || [];
-    const endpointCount = getAllEndpoints().length;
-
-    res.send(`
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Job Diva API MCP Server</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; background: #1a1a2e; color: #eee; }
-        h1 { color: #60a5fa; }
-        .status { background: #16213e; padding: 20px; border-radius: 8px; margin: 20px 0; }
-        .status h2 { margin-top: 0; color: #a78bfa; }
-        code { background: #0f3460; padding: 4px 8px; border-radius: 4px; }
-        ul { list-style: none; padding: 0; }
-        li { padding: 8px 0; border-bottom: 1px solid #333; }
-        .tag { background: #16213e; padding: 4px 12px; border-radius: 16px; font-size: 0.9em; }
-        a { color: #60a5fa; }
-    </style>
-</head>
-<body>
-    <h1>🚀 Job Diva API MCP Server</h1>
-    <p>This is a Model Context Protocol (MCP) server exposing Job Diva API documentation to AI assistants.</p>
-    
-    <div class="status">
-        <h2>✅ Server Status</h2>
-        <ul>
-            <li><strong>Status:</strong> Running</li>
-            <li><strong>Endpoints Loaded:</strong> ${endpointCount}</li>
-            <li><strong>Categories:</strong> ${tags.length}</li>
-        </ul>
-    </div>
-    
-    <div class="status">
-        <h2>📡 Available Routes</h2>
-        <ul>
-            <li><code>GET /</code> - This page</li>
-            <li><code>GET /health</code> - <a href="/health">Health check (JSON)</a></li>
-            <li><code>GET /mcp</code> - SSE endpoint for MCP clients</li>
-            <li><code>POST /mcp/message</code> - Message endpoint for MCP</li>
-        </ul>
-    </div>
-    
-    <div class="status">
-        <h2>🏷️ API Categories</h2>
-        <ul>
-            ${tags.map(t => `<li><span class="tag">${t.name}</span> - ${t.description}</li>`).join('')}
-        </ul>
-    </div>
-    
-    <div class="status">
-        <h2>🔧 MCP Tools Available</h2>
-        <ul>
-            <li><code>search_endpoints</code> - Search endpoints by keyword</li>
-            <li><code>get_endpoint_details</code> - Get full endpoint details</li>
-            <li><code>list_endpoints_by_tag</code> - List endpoints by category</li>
-        </ul>
-    </div>
-</body>
-</html>
-    `);
-});
-
-// Health check endpoint
-app.get("/health", (_req: Request, res: Response) => {
-    res.json({ status: "ok", endpoints: Object.keys(apiData.paths).length });
-});
-
-// SSE endpoint for MCP
-app.get("/mcp", async (req: Request, res: Response) => {
-    console.log("[MCP] New SSE connection initializing...");
-
-    const sessionId = Date.now().toString() + "-" + Math.random().toString(36).substring(2, 9);
-    console.log(`[MCP] Created session: ${sessionId}`);
-
-    const transport = new SSEServerTransport(`/mcp/message?sessionId=${sessionId}`, res);
-    transports.set(sessionId, transport);
-
-    res.on("close", () => {
-        console.log(`[MCP] SSE connection closed for session: ${sessionId}`);
-        transports.delete(sessionId);
+    const results = endpoints.filter((e) => {
+      const searchIn = [
+        e.path,
+        e.summary,
+        e.description,
+        e.operationId,
+        ...(e.details.parameters?.map((p) => p.name) || []),
+        ...(e.details.parameters?.map((p) => p.description || "") || []),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return searchIn.includes(query);
     });
 
-    await server.connect(transport);
-});
-
-// Message endpoint for MCP
-app.post("/mcp/message", express.json(), async (req: Request, res: Response) => {
-    const sessionId = req.query.sessionId as string;
-
-    if (!sessionId) {
-        console.error("[MCP] Error: No sessionId provided in query params");
-        res.status(400).json({ error: "Missing sessionId query parameter" });
-        return;
+    if (results.length === 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `No endpoints found matching "${query}"${categoryFilter ? ` in category ${categoryFilter}` : ""}`,
+          },
+        ],
+      };
     }
 
-    const transport = transports.get(sessionId);
+    const output = results.slice(0, 20).map(formatEndpointSummary);
 
-    if (transport) {
-        // console.log(`[MCP] Handling message for session: ${sessionId}`);
-        await transport.handlePostMessage(req, res);
-    } else {
-        console.error(`[MCP] Error: Session not found: ${sessionId}`);
-        res.status(404).json({ error: "Session not found or expired" });
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Found ${results.length} endpoint(s) matching "${query}"${categoryFilter ? ` in ${categoryFilter}` : ""}:\n\n${JSON.stringify(output, null, 2)}`,
+        },
+      ],
+    };
+  }
+
+  if (name === "get_jobdiva_endpoint") {
+    const path = args?.path as string;
+    const method = (args?.method as string || "").toUpperCase();
+
+    const endpoint = getAllEndpoints().find(
+      (e) => e.path === path && e.method === method
+    );
+
+    if (!endpoint) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Endpoint not found: ${method} ${path}\n\nTip: Use search_jobdiva_endpoints to find available endpoints.`,
+          },
+        ],
+      };
     }
+
+    const details = formatEndpointDetails(endpoint);
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(details, null, 2),
+        },
+      ],
+    };
+  }
+
+  if (name === "list_jobdiva_categories") {
+    const tags = apiData.tags || [];
+    const endpoints = getAllEndpoints();
+
+    const categories = tags.map((t) => ({
+      name: t.name,
+      description: t.description,
+      endpointCount: endpoints.filter((e) => e.tag === t.name).length,
+    }));
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Job Diva API Categories:\n\n${JSON.stringify(categories, null, 2)}`,
+        },
+      ],
+    };
+  }
+
+  if (name === "get_jobdiva_category") {
+    const category = args?.category as string;
+    const endpoints = getAllEndpoints().filter(
+      (e) => e.tag.toLowerCase() === category.toLowerCase()
+    );
+
+    if (endpoints.length === 0) {
+      const availableTags = apiData.tags?.map((t) => t.name).join(", ");
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Category "${category}" not found.\n\nAvailable categories: ${availableTags}`,
+          },
+        ],
+      };
+    }
+
+    const output = endpoints.map(formatEndpointDetails);
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `${endpoints.length} endpoint(s) in ${category}:\n\n${JSON.stringify(output, null, 2)}`,
+        },
+      ],
+    };
+  }
+
+  throw new Error(`Unknown tool: ${name}`);
 });
 
 // Start the server
-app.listen(PORT, "0.0.0.0", () => {
-    console.log(`[MCP] Job Diva API Documentation server running on http://0.0.0.0:${PORT}`);
-    console.log(`[MCP] SSE endpoint: /mcp`);
-    console.log(`[MCP] Health check: /health`);
+async function main() {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error("[JobDiva MCP] Server started and ready for connections");
+}
+
+main().catch((error) => {
+  console.error("[JobDiva MCP] Fatal error:", error);
+  process.exit(1);
 });
