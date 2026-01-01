@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build:*)",
+      "Bash(timeout 5 npm start:*)",
+      "Bash(curl:*)",
+      "Bash(npm test:*)",
+      "Bash(node:*)",
+      "Bash(npm install)",
+      "Bash(timeout 3 npm start:*)",
+      "Bash(timeout 2 npm start:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push)",
+      "Bash(git push:*)",
+      "Bash(git checkout:*)",
+      "Bash(git merge:*)"
+    ]
+  }
+}
